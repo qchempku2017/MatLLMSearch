@@ -4,12 +4,11 @@ This is the implementation for **MatLLMSearch: Large Language Models Are Innate 
 
 ### Elemental Frequency in LLM-proposed Crystal Structures (Periodic Table)
 
-![periodic_animation](/Users/jing/Downloads/periodic_animation.gif)
+![periodic_animation](https://drive.google.com/uc?export=view&id=1-Ex-mNduWgRSfPDooW89OT1snN2EXhc7)
 
 ### How Pareto Frontiers are pushed during Iterations under Varied Optimization Objectives
 
-![pareto_evolution](/Users/jing/Downloads/pareto_evolution.gif)
-
+![pareto_evolution](https://drive.google.com/uc?export=view&id=1-KWyKDwJRVH7mB-5sXZTNvwglYHJEcKq)
 ## Prerequisites
 
 ### Required Python Packages

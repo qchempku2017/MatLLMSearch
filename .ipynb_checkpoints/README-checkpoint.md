@@ -2,9 +2,9 @@
 
 This is the implementation for **MatLLMSearch: Large Language Models Are Innate Crystal Structure Generators**. This code implements an evolutionary search pipeline for crystal structure generation (CSG) and crystal structure prediction (CSP) with Large Language Models (LLMs) without fine-tuning.
 
-<div align="center">
-  <img src="https://drive.google.com/uc?export=view&id=1M-aoNatLEtB1JTZoVsvlUjo59Z1CU9EL" alt="main pipeline">
-</div>
+## Overview
+![MatLLMSearch Main Pipeline](https://drive.google.com/uc?export=view&id=1M-aoNatLEtB1JTZoVsvlUjo59Z1CU9EL)
+
 
 ### Elemental Frequency in LLM-proposed Crystal Structures (Periodic Table)
 

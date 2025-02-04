@@ -4,7 +4,9 @@ This is the implementation for **MatLLMSearch: Large Language Models Are Innate 
 
 ## Pipeline Overview
 
-<embed src="https://drive.google.com/file/d/1M-aoNatLEtB1JTZoVsvlUjo59Z1CU9EL/preview" width="640" height="480" type="application/pdf">
+<div align="center">
+  <img src="https://drive.google.com/uc?export=view&id=1a26VlO27v8mK3P2jGv7XX3ZHKmzPpmUk" alt="main_pipeline" loop>
+</div>
 
 ### Elemental Frequency in LLM-proposed Crystal Structures (Periodic Table)
 

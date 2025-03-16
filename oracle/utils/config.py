@@ -34,43 +34,72 @@ Your task:
 Output your hypotheses below:
 """
 
+# Crystal Structure Generation in a specific chemical space.
+PROMPT_PATTERN_CSGS = """You are an expert material scientist. Your task is to propose hypotheses for {rep_size} new materials with valid stable structures and compositions.
 
-# Crystal Structure Prediction
-PROMPT_PATTERN_CSP = """You are an expert material scientist. Your task is to design {rep_size} novel, thermodynamically stable variants of sodium aluminum chloride with the general formula (Na3AlCl6)*n, where n represents different multiples of the base composition. No isolated or overlapped atoms are allowed. You may refer to the reference structures provided below as inspiration, but ensure you propose novel atomic arrangements beyond simple atomic substitution.
+The generated materials must contain only elements {chem_space}. At least one of these elements must be present, and no other elements are allowed.
+ 
+No isolated or overlapped atoms are allowed.
 
-Crystal structures for reference:
-{input}
+The proposed new materials can be a modification or combination of the base materials given below.
 
 Format requirements:
 1. Each proposed structure must be formatted in JSON with the following structure:
 {{
     "i": {{
-        "formula": "Na3AlCl6",
+        "formula": "composition_formula",
         "{fmt}": "{fmt}_format_string"
     }}
 }}
-2. Use proper JSON escaping for newlines (\\n) and other special characters.
+2. Use proper JSON escaping for newlines (\\n) and other special characters
+
+Base material structure for reference:
+{input}
+
+Your task:
+1. Generate {rep_size} new structure hypotheses
+2. Each structure should be stable and physically reasonable
+3. Format each structure exactly as shown in the input
 
 Output your hypotheses below:
 """
 
-# Model Settings
-MODEL_SETTINGS = {
-    "70b": {
-        "max_token_length": 7904,
-    },
-    "mistral": {
-        "max_token_length": 32000,
-    }
-}
+# Crystal Structure Prediction (deprecated)
+# PROMPT_PATTERN_CSP = """You are an expert material scientist. Your task is to design {rep_size} novel, thermodynamically stable variants of sodium aluminum chloride with the general formula (Na3AlCl6)*n, where n represents different multiples of the base composition. No isolated or overlapped atoms are allowed. You may refer to the reference structures provided below as inspiration, but ensure you propose novel atomic arrangements beyond simple atomic substitution.
+#
+# Crystal structures for reference:
+# {input}
+#
+# Format requirements:
+# 1. Each proposed structure must be formatted in JSON with the following structure:
+# {{
+#     "i": {{
+#         "formula": "Na3AlCl6",
+#         "{fmt}": "{fmt}_format_string"
+#     }}
+# }}
+# 2. Use proper JSON escaping for newlines (\\n) and other special characters.
+#
+# Output your hypotheses below:
+# """
+
+# Model Settings (deprecated)
+# MODEL_SETTINGS = {
+#     "70b": {
+#         "max_token_length": 7904,
+#     },
+#     "mistral": {
+#         "max_token_length": 32000,
+#     }
+# }
 
 # Stability Thresholds
 STABILITY_THRESHOLDS = [0.03, 0.06]
 
-# API Keys
-OPENAI_API_KEY = ""
-HF_TOKEN = ""
-HF_TOKEN_W = ""
+# API Keys, deprecated as local machine has internet restriction.
+# OPENAI_API_KEY = ""
+# HF_TOKEN = ""
+# HF_TOKEN_W = ""
 
 
 LANTHANIDES = ['Ce', 'Pr', 'Nd', 'Pm', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu']

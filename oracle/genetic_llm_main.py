@@ -1,28 +1,22 @@
 import argparse
+from typing import Tuple
 from pathlib import Path
-import pandas as pd
-import torch
-import json
 import random
-import numpy as np
-from typing import List, Tuple
-import tiktoken
-from dataclasses import dataclass
-import os
 
-from utils.config import LANTHANIDES, ACTINIDES
-from utils.llm_manager import LLMManager
-from utils.generator import StructureGenerator, GenerationResult
-from utils.evaluator import StructureEvaluator
-from utils.stability import StabilityCalculator
-from typing import List, Dict, Tuple, Any
+import numpy as np
+import pandas as pd
+from pymatgen.core.structure import Structure
 
 from chgnet.model.model import CHGNet
 from chgnet.model import StructOptimizer
-from utils.e_hull_calculator import EHullCalculator
-from pymatgen.core.structure import Structure
-from collections import Counter
-import torch.multiprocessing as mp
+
+# from .utils.config import LANTHANIDES, ACTINIDES
+from .utils.llm_manager import LLMManager
+from .utils.generator import StructureGenerator, GenerationResult
+from .utils.evaluator import StructureEvaluator
+from .utils.stability import StabilityCalculator
+from .utils.e_hull_calculator import EHullCalculator
+from .utils.file_util import load_gzip, load_pkl
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -30,7 +24,7 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     
     # Task and Model arguments
-    parser.add_argument('--base_model', default='meta-llama/Meta-Llama-3.1-70B-Instruct')
+    parser.add_argument('--model_path', default='./model')
     parser.add_argument('--model_label', default='llama3_instruct')
     parser.add_argument('--fmt', choices=['poscar', 'cif'], default='poscar')
     parser.add_argument('--tensor_parallel_size', type=int, default=4)
@@ -43,14 +37,24 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument('--reproduction_size', type=int, default=5)
     parser.add_argument('--context_size', type=int, default=2)
     parser.add_argument('--max_iter', type=int, default=10)
-    parser.add_argument('--pool_size', type=int, default=3500)
     
-    parser.add_argument('--save_label', default='eval')
-    parser.add_argument('--save_path', default='./results')
-    parser.add_argument('--ppd_path', default='oracle/2023-02-07-ppd-mp.pkl.gz')
-    
-    parser.add_argument('--opt_goal', choices=['e_hull_distance', 'bulk_modulus_relaxed', 'multi-obj'], default='e_hull_distance')
-    parser.add_argument('--task', choices=['csg', 'csp', 'csp_MnO2'], default='csg')
+    parser.add_argument('--save_label', type=str, default='eval')
+    parser.add_argument('--save_path', type=str, default='./results')
+    parser.add_argument('--ppd_path', type=str, default='./2023-02-07-ppd-mp.pkl.gz')
+
+    parser.add_argument("--seed_path", type=str, default="./seed_structures_processed_3500_matbench.csv",
+                        help="Specify the path to the seed structures file. Optional.")
+    parser.add_argument("--pool_size", type=int, default=3500)
+
+    # Deprecated bulk modulus, only energy above hull is used.
+    parser.add_argument(
+        '--opt_goal',
+                     choices=['e_hull_distance'],
+                     default='e_hull_distance'
+    )
+    parser.add_argument('--task', choices=['csg', 'csg-space', 'csp'], default='csg')
+    parser.add_argument("--chem_space", type=str, default="Li, P, S",
+                        help="Chemical space for csg-space task.")
     
     return parser.parse_args()
 
@@ -62,7 +66,7 @@ def initialize_models(args: argparse.Namespace) -> Tuple:
     
     # Initialize LLM
     llm_manager = LLMManager(
-        args.base_model,
+        args.model_path,
         args.tensor_parallel_size,
         args.gpu_memory_utilization,
         args.temperature,
@@ -74,36 +78,23 @@ def initialize_models(args: argparse.Namespace) -> Tuple:
     evaluator = StructureEvaluator(base_path=base_path)
     chgnet = CHGNet.load()
     relaxer = StructOptimizer()
-    e_hull_calculator = EHullCalculator(args.ppd_path)
+    if not "pkl" in args.ppd_path:
+        raise ValueError("Invalid PhaseDiagram file format. Must be a pickled file.")
+    elif args.ppd_path.endswith(".gz"):
+        ppd = load_gzip(args.ppd_path)
+    else:
+        ppd = load_pkl(args.ppd_path)
+    e_hull_calculator = EHullCalculator(ppd)
     stability_calculator = StabilityCalculator(chgnet, relaxer, e_hull_calculator)
     
     return llm_manager, generator, evaluator, stability_calculator
 
-def has_MnO2(composition):
-    try:
-        comp = composition.as_dict()
-        if 'Mn' not in comp or 'O' not in comp:
-            return False
-        return comp['Mn']/comp['O'] == 0.5
-    except:
-        return False
-        
-def has_NaAlCl(composition):
-    comp = composition.as_dict()
-    if len(comp.keys()) == 3 and 'Na' in comp and 'Al' in comp and 'Cl' in comp:
-        return True
-    return False
     
-def initialize_task_data(evaluator: StructureEvaluator, args: argparse.Namespace):
+def initialize_task_data(args: argparse.Namespace):
     """Initialize and prepare task data."""
-    if args.task == "csg":
-        seed_structures_df = pd.read_csv(f'oracle/seed_structures_processed_{args.pool_size}.csv')
-    elif args.task == "csp":
-        seed_structures_df = pd.read_csv('oracle/seed_structures_processed_Na3AlCl6.csv')
-    elif args.task == "csp_MnO2":
-        seed_structures_df = pd.read_csv('oracle/seed_structures_processed_MnO2.csv')
-    else:
-        raise ValueError(f"Invalid task: {args.task}")
+
+    seed_structures_df = pd.read_csv(args.seed_path)
+
     seed_structures_df['structure'] = seed_structures_df['structure'].apply(lambda x: Structure.from_str(x, fmt='json') if pd.notna(x) else None)
     seed_structures_df['composition'] = [s.composition for s in seed_structures_df['structure']]
     seed_structures_df['composition_str'] = [s.composition.formula for s in seed_structures_df['structure']]
@@ -115,23 +106,13 @@ def initialize_task_data(evaluator: StructureEvaluator, args: argparse.Namespace
          (seed_structures_df['composition_len'].between(3, 6))]
     )
     # Conditional Filtering
-    if args.task == "csg":
-        if  args.pool_size == 3500:
-            seed_structures_df = seed_structures_df.sort_values('gappbe_to_3', ascending=True)
-        seed_structures_df = seed_structures_df[np.isfinite(seed_structures_df['e_hull_distance'])]
-        seed_structures_df = seed_structures_df[:args.pool_size]
-        assert len(seed_structures_df) == args.pool_size
-        # seed_structures_df = seed_structures_df[~seed_structures_df['composition_str'].str.contains('|'.join(LANTHANIDES + ACTINIDES), na=False)]
-    elif args.task == "csp":
-        seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(
-            lambda x: has_LiZrCl(x) or any(Counter(x.as_dict().values()) == Counter({n: 1, n*2: 1, n*6: 1}) for n in range(1, 10)))]
-    elif args.task == "csp_MnO2":
-        seed_structures_df = seed_structures_df[np.isfinite(seed_structures_df['e_hull_distance'])]
-        seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(has_MnO2)]
-    else:
-        raise ValueError(f"Invalid task: {args.task}")    
+    if 'gappbe_to_3' in seed_structures_df.columns:
+        seed_structures_df = seed_structures_df.sort_values('gappbe_to_3', ascending=True)
+    seed_structures_df = seed_structures_df[np.isfinite(seed_structures_df['e_hull_distance'])]
+    seed_structures_df = seed_structures_df[:args.pool_size]
+    # seed_structures_df = seed_structures_df[~seed_structures_df['composition_str'].str.contains('|'.join(LANTHANIDES + ACTINIDES), na=False)]
     seed_structures_df = seed_structures_df[required_columns].sample(frac=1, random_state=args.random_seed)
-    seed_structures_df['source'] = 'matbench'
+    seed_structures_df['source'] = args.seed_path.split("_")[-1].split(".")[0]
     print(f"Using extra pool of {len(seed_structures_df)} structures...")
     
     return seed_structures_df
@@ -229,18 +210,16 @@ def process_stability_results(stability_results, structures):
         bulk_modulus_relaxed=df['bulk_modulus_relaxed'].tolist()
     )
 
-def get_parent_generation(evaluator, stability_calculator, input_generation: GenerationResult, parent_generation: GenerationResult,
+def get_parent_generation(input_generation: GenerationResult, parent_generation: GenerationResult,
                      full_df: pd.DataFrame, sort_target: str, args: argparse.Namespace, iter: int) -> GenerationResult:
     """Get sorted generation combining input structures and parent generation results."""
-    interested_columns = ['structure', 'composition', 'composition_str', 'e_hull_distance', 'delta_e', 'bulk_modulus', 'bulk_modulus_relaxed', 'source']
+    interested_columns = ['structure', 'composition', 'composition_str', 'e_hull_distance', 'delta_e', 'source']
     if input_generation and parent_generation: 
         generation_df = pd.DataFrame({
             'structure': input_generation.structure + parent_generation.structure,
             'composition': [s.composition for s in (input_generation.structure + parent_generation.structure)],
             'e_hull_distance': input_generation.e_hull_distance + parent_generation.e_hull_distance,
             'delta_e': input_generation.delta_e + parent_generation.delta_e,
-            'bulk_modulus': input_generation.bulk_modulus + parent_generation.bulk_modulus,
-            'bulk_modulus_relaxed': input_generation.bulk_modulus_relaxed + parent_generation.bulk_modulus_relaxed,
             'source': input_generation.source + parent_generation.source
         })
         ascending = (sort_target not in ['bulk_modulus', 'bulk_modulus_relaxed'])        
@@ -253,18 +232,10 @@ def get_parent_generation(evaluator, stability_calculator, input_generation: Gen
         generation_df = full_df[interested_columns].copy()
         generation_df['objective'] = 10 * generation_df['e_hull_distance'] - generation_df['bulk_modulus_relaxed']
         generation_df = generation_df.sample(frac=1, random_state=args.random_seed)
-    
-    if args.task == "csg":
-        generation_df = generation_df.drop_duplicates(subset='composition_str')
-        # generation_df = generation_df[~generation_df['composition_str'].str.contains('|'.join(LANTHANIDES + ACTINIDES), na=False)]
-    elif args.task == "csp":
-        generation_df = generation_df[generation_df['composition'].apply(
-            lambda x: has_NaAlCl(x) or any(Counter(x.as_dict().values()) == Counter({n: 1, n*3: 1, n*6: 1}) for n in range(1, 10)))]
-    elif args.task == "csp_MnO2":
-        generation_df = generation_df[generation_df['composition'].apply(has_MnO2)]
-    else:
-        raise ValueError(f"Invalid task: {args.task}")
 
+    # Why do you have to drop structures with the same formula here?
+    generation_df = generation_df.drop_duplicates(subset='composition_str')
+    # generation_df = generation_df[~generation_df['composition_str'].str.contains('|'.join(LANTHANIDES + ACTINIDES), na=False)]
     generation_df = generation_df.drop(columns=['composition_str'])
 
     print(f'Preparing {args.topk * args.context_size} parent structures for next generation from {len(generation_df)} structures...')
@@ -297,14 +268,16 @@ def main():
     llm_manager, generator, evaluator, stability_calculator = initialize_models(args)
     
     # Initialize task data
-    seed_structures_df = initialize_task_data(evaluator, args)
+    seed_structures_df = initialize_task_data(args)
     # Select initial generation
-    curr_generation = get_parent_generation(evaluator, stability_calculator, None, None, seed_structures_df, None, args, 0)
-    
-    # Initialize results tracking
-    population_df = pd.DataFrame()
-    all_generated_df = pd.DataFrame()
-    eval_df = pd.DataFrame()
+    curr_generation = get_parent_generation(
+        input_generation=None,
+        parent_generation=None,
+        full_df=seed_structures_df,
+        sort_target=None,
+        args = args,
+        iter = 0
+    )
     
     for iteration in range(1, args.max_iter + 1):
         generation_result = run_generation_iteration(
@@ -326,7 +299,7 @@ def main():
         if opt_goal == "multi-obj":
             # opt_goal = "e_hull_distance" if iteration % 2 == 1 else "bulk_modulus_relaxed"
             opt_goal = "objective"
-        curr_generation = get_parent_generation(evaluator, stability_calculator, generation_result, curr_generation, seed_structures_df, opt_goal, args, iteration)
+        curr_generation = get_parent_generation(generation_result, curr_generation, seed_structures_df, opt_goal, args, iteration)
         # e_hull_distance or bulk_modulus_relaxed
         print(f'Completed iteration {iteration}')
         print(f'Current metrics: {metrics}')

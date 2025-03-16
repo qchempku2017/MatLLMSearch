@@ -1,20 +1,16 @@
-import pandas as pd
-import numpy as np
+from pathlib import Path
+import json
 from typing import List, Dict, Tuple, Any, Optional
 
-from pathlib import Path
-from bs4 import BeautifulSoup
-import re
-from basic_eval import timeout, TimeoutError
-import json
-from utils.config import METAL_OXIDATION_STATES
+import numpy as np
+import pandas as pd
 from pymatgen.analysis.molecule_structure_comparator import CovalentRadius
 from pymatgen.core.structure import Structure
-from utils.generator import GenerationResult
-from dataclasses import dataclass
-from utils.basic_eval import structure_to_crystal, get_fp_pdist, CompScaler, timeout, TimeoutError
-from collections import Counter
 
+from .config import METAL_OXIDATION_STATES
+from .generator import GenerationResult
+from .structure_util import structure_to_crystal
+from .timeout import timeout
 
 
 class StructureEvaluator:

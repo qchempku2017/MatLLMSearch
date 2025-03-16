@@ -3,12 +3,27 @@ Copyright (c) Facebook, Inc. and its affiliates.
 
 This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
+
+Much of the below code is taken without modification from the original
+CDVAE repo (https://github.com/txie-93/cdvae).
+In some cases, the code has been modified to work with the structure of
+our codebase, but the logic is the same.
 """
-
 import numpy as np
+# import pandas as pd
+from pymatgen.core import Structure, Lattice, Composition
+from scipy.spatial.distance import pdist, cdist
 
-# The below code is taken without modification from the original
-# CDVAE repo (https://github.com/txie-93/cdvae).
+
+COV_Cutoffs = {
+    'mp20': {'struc': 0.4, 'comp': 10.},
+    'carbon': {'struc': 0.2, 'comp': 4.},
+    'perovskite': {'struc': 0.2, 'comp': 4},
+}
+
+NOVELTY_Cutoffs = {
+    'mp20': {'struc': 0.1, 'comp': 2.},
+}
 
 CompScalerMeans = [
     21.194441759304013,
@@ -279,91 +294,220 @@ CompScalerStds = [
     85.980205895116]
 
 
-chemical_symbols = [
-    # 0
-    'X',
-    # 1
-    'H', 'He',
-    # 2
-    'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne',
-    # 3
-    'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'Ar',
-    # 4
-    'K', 'Ca', 'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn',
-    'Ga', 'Ge', 'As', 'Se', 'Br', 'Kr',
-    # 5
-    'Rb', 'Sr', 'Y', 'Zr', 'Nb', 'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd',
-    'In', 'Sn', 'Sb', 'Te', 'I', 'Xe',
-    # 6
-    'Cs', 'Ba', 'La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy',
-    'Ho', 'Er', 'Tm', 'Yb', 'Lu',
-    'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt', 'Au', 'Hg', 'Tl', 'Pb', 'Bi',
-    'Po', 'At', 'Rn',
-    # 7
-    'Fr', 'Ra', 'Ac', 'Th', 'Pa', 'U', 'Np', 'Pu', 'Am', 'Cm', 'Bk',
-    'Cf', 'Es', 'Fm', 'Md', 'No', 'Lr',
-    'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds', 'Rg', 'Cn', 'Nh', 'Fl', 'Mc',
-    'Lv', 'Ts', 'Og'
-]
-
 class StandardScaler:
-    """A :class:`StandardScaler` normalizes the features of a dataset.
-    When it is fit on a dataset, the :class:`StandardScaler` learns the
-        mean and standard deviation across the 0th axis.
-    When transforming a dataset, the :class:`StandardScaler` subtracts the
-        means and divides by the standard deviations.
+    """Normalizes features by subtracting mean and dividing by standard deviation.
+
+    Learns mean and standard deviation along axis 0 during fit.
+    Transforms data by standardizing with learned statistics.
+
+    Attributes:
+        means: 1D array of feature means.
+        stds: 1D array of feature standard deviations.
+        replace_nan_token: Value to replace NaN entries in features.
     """
 
     def __init__(self, means=None, stds=None, replace_nan_token=None):
-        """
-        :param means: An optional 1D numpy array of precomputed means.
-        :param stds: An optional 1D numpy array of precomputed standard deviations.
-        :param replace_nan_token: A token to use to replace NaN entries in the features.
+        """Initialize StandardScaler with optional pre-computed statistics.
+
+        Args:
+            means: Optional 1D numpy array of precomputed means.
+            stds: Optional 1D numpy array of precomputed standard deviations.
+            replace_nan_token: Token to replace NaN entries in features.
         """
         self.means = means
         self.stds = stds
         self.replace_nan_token = replace_nan_token
 
     def fit(self, X):
-        """
-        Learns means and standard deviations across the 0th axis of the data :code:`X`.
-        :param X: A list of lists of floats (or None).
-        :return: The fitted :class:`StandardScaler` (self).
+        """Learn mean and standard deviation from input data.
+
+        Args:
+            X: List or array of feature values to fit on.
+
+        Returns:
+            self: Fitted scaler instance.
         """
         X = np.array(X).astype(float)
         self.means = np.nanmean(X, axis=0)
         self.stds = np.nanstd(X, axis=0)
-        self.means = np.where(np.isnan(self.means),
-                              np.zeros(self.means.shape), self.means)
-        self.stds = np.where(np.isnan(self.stds),
-                             np.ones(self.stds.shape), self.stds)
-        self.stds = np.where(self.stds == 0, np.ones(
-            self.stds.shape), self.stds)
-
+        self.means = np.where(np.isnan(self.means), np.zeros(self.means.shape), self.means)
+        self.stds = np.where(np.isnan(self.stds), np.ones(self.stds.shape), self.stds)
+        self.stds = np.where(self.stds == 0, np.ones(self.stds.shape), self.stds)
         return self
 
     def transform(self, X):
-        """
-        Transforms the data by subtracting the means and dividing by the standard deviations.
-        :param X: A list of lists of floats (or None).
-        :return: The transformed data with NaNs replaced by :code:`self.replace_nan_token`.
+        """Transform data using learned statistics.
+
+        Args:
+            X: List or array of feature values to transform.
+
+        Returns:
+            array: Transformed features with NaNs replaced by replace_nan_token.
         """
         X = np.array(X).astype(float)
         transformed_with_nan = (X - self.means) / self.stds
         transformed_with_none = np.where(
-            np.isnan(transformed_with_nan), self.replace_nan_token, transformed_with_nan)
-
+            np.isnan(transformed_with_nan),
+            self.replace_nan_token,
+            transformed_with_nan
+        )
         return transformed_with_none
 
     def inverse_transform(self, X):
-        """
-        Performs the inverse transformation by multiplying by the standard deviations and adding the means.
-        :param X: A list of lists of floats.
-        :return: The inverse transformed data with NaNs replaced by :code:`self.replace_nan_token`.
+        """Inverse transform standardized data back to original scale.
+
+        Args:
+            X: List or array of standardized feature values.
+
+        Returns:
+            array: Original-scale features with NaNs replaced by replace_nan_token.
         """
         X = np.array(X).astype(float)
         transformed_with_nan = X * self.stds + self.means
         transformed_with_none = np.where(
-            np.isnan(transformed_with_nan), self.replace_nan_token, transformed_with_nan)
-
+            np.isnan(transformed_with_nan),
+            self.replace_nan_token,
+            transformed_with_nan
+        )
         return transformed_with_none
+
+CompScaler = StandardScaler(
+    means=np.array(CompScalerMeans),
+    stds=np.array(CompScalerStds),
+    replace_nan_token=0.)
+
+def get_fp_pdist(fp_array):
+    if isinstance(fp_array, list):
+        fp_array = np.array(fp_array)
+    fp_pdists = pdist(fp_array)
+    return fp_pdists.mean()
+
+def filter_fps(struc_fps, comp_fps):
+    assert len(struc_fps) == len(comp_fps)
+
+    filtered_struc_fps, filtered_comp_fps = [], []
+
+    for struc_fp, comp_fp in zip(struc_fps, comp_fps):
+        if struc_fp is not None and comp_fp is not None:
+            filtered_struc_fps.append(struc_fp)
+            filtered_comp_fps.append(comp_fp)
+    return filtered_struc_fps, filtered_comp_fps
+
+def compute_cov(
+    crys, 
+    gt_crys,
+    struc_cutoff, 
+    comp_cutoff,
+    # num_gen_crystals=None
+):
+    struc_fps = [c.struct_fp for c in crys]
+    comp_fps = [c.comp_fp for c in crys]
+    gt_struc_fps = [c.struct_fp for c in gt_crys]
+    gt_comp_fps = [c.comp_fp for c in gt_crys]
+
+    assert len(struc_fps) == len(comp_fps)
+    assert len(gt_struc_fps) == len(gt_comp_fps)
+
+    # Use number of crystal before filtering to compute COV
+    # if num_gen_crystals is None:
+    #     num_gen_crystals = len(struc_fps)
+
+    struc_fps, comp_fps = filter_fps(struc_fps, comp_fps)
+    gt_struc_fps, gt_comp_fps = filter_fps(gt_struc_fps, gt_comp_fps)
+
+    comp_fps = CompScaler.transform(comp_fps)
+    gt_comp_fps = CompScaler.transform(gt_comp_fps)
+
+    struc_fps = np.array(struc_fps)
+    gt_struc_fps = np.array(gt_struc_fps)
+    comp_fps = np.array(comp_fps)
+    gt_comp_fps = np.array(gt_comp_fps)
+
+    struc_pdist = cdist(struc_fps, gt_struc_fps)
+    comp_pdist = cdist(comp_fps, gt_comp_fps)
+
+    struc_recall_dist = struc_pdist.min(axis=0)
+    struc_precision_dist = struc_pdist.min(axis=1)
+    comp_recall_dist = comp_pdist.min(axis=0)
+    comp_precision_dist = comp_pdist.min(axis=1)
+
+    cov_recall = np.mean(np.logical_and(
+        struc_recall_dist <= struc_cutoff,
+        comp_recall_dist <= comp_cutoff))
+    cov_precision = np.mean(np.logical_and(
+        struc_precision_dist <= struc_cutoff,
+        comp_precision_dist <= comp_cutoff))# / num_gen_crystals
+
+    metrics_dict = {
+        'cov_recall': cov_recall,
+        'cov_precision': cov_precision,
+        'amsd_recall': np.mean(struc_recall_dist),
+        'amsd_precision': np.mean(struc_precision_dist),
+        'amcd_recall': np.mean(comp_recall_dist),
+        'amcd_precision': np.mean(comp_precision_dist),
+    }
+
+    combined_dist_dict = {
+        'struc_recall_dist': struc_recall_dist.tolist(),
+        'struc_precision_dist': struc_precision_dist.tolist(),
+        'comp_recall_dist': comp_recall_dist.tolist(),
+        'comp_precision_dist': comp_precision_dist.tolist(),
+    }
+
+    return metrics_dict, combined_dist_dict
+
+def compute_novelty(
+    crys, 
+    gt_crys,
+    struc_cutoff, 
+    comp_cutoff,
+):
+    struc_fps = [c.struct_fp for c in crys]
+    comp_fps = [c.comp_fp for c in crys]
+    gt_struc_fps = [c.struct_fp for c in gt_crys]
+    gt_comp_fps = [c.comp_fp for c in gt_crys]
+
+    assert len(struc_fps) == len(comp_fps)
+    assert len(gt_struc_fps) == len(gt_comp_fps)
+
+    struc_fps, comp_fps = filter_fps(struc_fps, comp_fps)
+    gt_struc_fps, gt_comp_fps = filter_fps(gt_struc_fps, gt_comp_fps)
+
+    comp_fps = CompScaler.transform(comp_fps)
+    gt_comp_fps = CompScaler.transform(gt_comp_fps)
+
+    struc_fps = np.array(struc_fps)
+    gt_struc_fps = np.array(gt_struc_fps)
+    comp_fps = np.array(comp_fps)
+    gt_comp_fps = np.array(gt_comp_fps)
+
+    struc_pdist = cdist(struc_fps, gt_struc_fps)
+    comp_pdist = cdist(comp_fps, gt_comp_fps)
+
+    struc_precision_dist = struc_pdist.min(axis=1)
+    comp_precision_dist = comp_pdist.min(axis=1)
+
+    struc_novelty = np.mean(struc_precision_dist > struc_cutoff)
+    comp_novelty = np.mean(comp_precision_dist > comp_cutoff)
+
+    novelty = np.mean(np.logical_or(
+        struc_precision_dist > struc_cutoff,
+        comp_precision_dist > comp_cutoff))
+
+    metrics_dict = {
+        'struc_novelty': struc_novelty,
+        'comp_novelty': comp_novelty,
+        'novelty': novelty,
+    }
+
+    return metrics_dict
+
+# baseline_numbers = pd.DataFrame([
+#     {'method': 'Train', 'struct_valid': 1.0, 'comp_valid': 0.9113, 'cov_recall': 1.0, 'cov_precision': 1.0, 'wdist_density': 0.051, 'wdist_num_elems': 0.016},
+#     {'method': 'FTCP', 'struct_valid': 0.0155, 'comp_valid': 0.4837, 'cov_recall': 0.047, 'cov_precision': 0.0009, 'wdist_density': 23.71, 'wdist_num_elems': 0.736},
+#     {'method': 'GSchNet', 'struct_valid': 0.9965, 'comp_valid': 0.7596, 'cov_recall': 0.3833, 'cov_precision': 0.9957, 'wdist_density': 3.034, 'wdist_num_elems': 0.641},
+#     {'method': 'PGSchNet', 'struct_valid': 0.7751, 'comp_valid': 0.7640, 'cov_recall': 0.4193, 'cov_precision': 0.9974, 'wdist_density': 4.04, 'wdist_num_elems': 0.623},
+#     {'method': 'CDVAE', 'struct_valid': 1.0, 'comp_valid': 0.867, 'cov_recall': 0.9915, 'cov_precision': 0.9949, 'wdist_density': 0.688, 'wdist_num_elems': 1.432},
+#     {'method': 'LM-CH', 'struct_valid': 0.8481, 'comp_valid': 0.8355, 'cov_recall': 0.9925, 'cov_precision': 0.9789, 'wdist_density': 0.864, 'wdist_num_elems': 0.132},
+#     {'method': 'LM-AC', 'struct_valid': 0.9581, 'comp_valid': 0.8887, 'cov_recall': 0.996, 'cov_precision': 0.9855, 'wdist_density': 0.696, 'wdist_num_elems': 0.092},
+# ])

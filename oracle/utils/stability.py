@@ -1,11 +1,12 @@
 import numpy as np
 from typing import List, Tuple, Dict, Optional
-from functools import wraps
 import torch
 from pymatgen.core.structure import Structure
 from dataclasses import dataclass
-from basic_eval import timeout, TimeoutError
 from chgnet.model.dynamics import EquationOfState
+
+from .timeout import timeout
+
 
 @dataclass
 class StabilityResult:
@@ -23,15 +24,18 @@ class StabilityCalculator:
         self.relaxer = relaxer_model
         self.e_hull = e_hull_model
         
-    def compute_stability(self, structures: List[Structure], wo_ehull=False, wo_bulk=False) -> Tuple[List[float], List[float]]:
-        """Compute stability metrics for a list of structures."""
+    def compute_stability(self, structures: List[Structure], wo_ehull=False, wo_bulk=True) -> Tuple[List[float], List[float]]:
+        """Compute stability metrics for a list of structures.
+
+        Note: 20250316: turned off default bulk modulus calculation.
+        """
         results = []
         for structure in structures:
             result = self.process_single_structure(structure, wo_ehull=wo_ehull, wo_bulk=wo_bulk)
             results.append(result)
         return results
 
-    def process_single_structure(self, structure: Structure, wo_ehull=False, wo_bulk=False) -> Optional[StabilityResult]:
+    def process_single_structure(self, structure: Structure, wo_ehull=False, wo_bulk=True) -> Optional[StabilityResult]:
         """Process single structure stability with error handling."""
         if structure.composition.num_atoms == 0:
             return None

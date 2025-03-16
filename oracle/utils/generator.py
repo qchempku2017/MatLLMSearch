@@ -1,20 +1,18 @@
-from utils.data_processing import truncate_text, correct_json_string
-# from utils.structure_utils import filter_hypothesis, filter_balanced_structures
-from utils.config import PROMPT_PATTERN_CSG, PROMPT_PATTERN_CSP
-# from utils.evaluator import check_properties_input
-from typing import List, Dict, Tuple, Any, Optional
+from .data_processing import truncate_text
+from .config import PROMPT_PATTERN_CSG, PROMPT_PATTERN_CSGS
+from typing import List, Tuple, Any, Optional, Union
 import pandas as pd
 import time
 from dataclasses import dataclass
 from pymatgen.core.structure import Structure
 from pymatgen.core.lattice import Lattice
-from bs4 import BeautifulSoup
 import re
 import os
 import json
-import random
 from pathlib import Path
 import numpy as np
+
+from .llm_manager import LLMManager
 
 @dataclass
 class GenerationResult:
@@ -36,18 +34,43 @@ class GenerationResult:
     
 
 class StructureGenerator:
-    def __init__(self, llm_manager: Any, base_path: Path, args: Any, fmt: str = 'poscar'):
+    def __init__(self,
+                 llm_manager: LLMManager,
+                 base_path: Union[Path, str],
+                 args: Any):
         self.llm_manager = llm_manager
         self.args = args
-        self.base_path = base_path
+        if not isinstance(base_path, Path):
+            self.base_path = Path(base_path).resolve()
+        else:
+            self.base_path = base_path
         self.fmt = args.fmt
-        self.prompt_pattern = PROMPT_PATTERN_CSG if args.task == "csg" else PROMPT_PATTERN_CSP
-
+        # csp deprecated. csg and csg-space are the only tasks.
+        if args.task == "csg":
+            self.task = "csg"
+            self.prompt_pattern = PROMPT_PATTERN_CSG
+        elif args.task == "csg-space":
+            self.task = "csg-space"
+            self.prompt_pattern = PROMPT_PATTERN_CSGS
+        else:
+            raise ValueError("Invalid task {}".format(args.task))
         
     def _prepare_instructions(self, input_structure_strs: List) -> List:
         instructions = []
         for input_str in input_structure_strs:
-            question = self.prompt_pattern.format(input=truncate_text(input_str, max_tokens=11800), rep_size=self.args.reproduction_size, fmt=self.fmt)
+            if self.task == "csp":
+                question = self.prompt_pattern.format(
+                    input=truncate_text(input_str, max_tokens=11800),
+                    rep_size=self.args.reproduction_size,
+                    fmt=self.fmt
+                )
+            else:
+                question = self.prompt_pattern.format(
+                    input=truncate_text(input_str, max_tokens=11800),
+                    rep_size=self.args.reproduction_size,
+                    fmt=self.fmt,
+                    chem_space=self.args.chem_space
+                )
             message = [
                 { "role": "user", "content": question },
              ]
@@ -101,8 +124,8 @@ class StructureGenerator:
             raise ValueError("Format must be either 'poscar' or 'cif'")
         structures_dict = {
             str(i): {
+                # Use reduced formula here.
                 "formula": struct.composition.reduced_formula,
-                # "formula": struct.composition.formula,
                 fmt: self.structure_to_string(struct, precision=precision, fmt=fmt)
             }
             for i, struct in enumerate(structures)
@@ -111,17 +134,8 @@ class StructureGenerator:
         
 
     def generate_structures(self, input_structures: List) -> List:
-        if "flowmm" in self.args.base_model:
-            generated_structures = self.llm_manager.generate(input_structures)
-            return list(map(lambda x: [x] for x in generated_structures)), list(map(lambda x: [x] for x in input_structures))
         input_groups = [input_structures[i:i + self.args.context_size] for i in range(0, len(input_structures), self.args.context_size)]
         input_structure_strs = [self.structures_to_json(input_group, precision=12, fmt=self.fmt) for input_group in input_groups]
-        
-        # if self.args.task == "csp_MnO2":
-        #     host_struct = Structure.from_file('oracle/MnO2-host/mp-19395-alpha-MnO2-sym.cif')
-        #     host_structure_str = self.structures_to_json([host_struct], precision=12, fmt=self.fmt)
-        #     instructions = self._prepare_instructions(input_structure_strs, host_structure_str)
-        # else:
         instructions = self._prepare_instructions(input_structure_strs)
         
         start = time.time()

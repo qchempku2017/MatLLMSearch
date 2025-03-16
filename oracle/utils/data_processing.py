@@ -1,13 +1,30 @@
-import tiktoken
-import pandas as pd
-import numpy as np
+import os
 import re
 import json
-from typing import Any, Dict, List, Union, Tuple
+from typing import Any, Dict, List, Union
+
+import numpy as np
+import tiktoken
+import pandas as pd
 from pymatgen.core.structure import Structure
 
-def truncate_text(text: str, max_tokens: int, encoding_name: str = "gpt-3.5-turbo") -> str:
-    """Truncate text to fit within max_tokens limit."""
+
+# Settings to make viable the offline mode.
+TIKTOKEN_CACHE_DIR = os.path.dirname(__file__) + "/tiktoken_cache"
+TIKTOKEN_CACHE_HASH = "223921b76ee99bde995b7ff738513eef100fb51d18c93597a113bcffe865b2a7"
+os.environ["TIKTOKEN_CACHE_DIR"] = TIKTOKEN_CACHE_DIR
+assert os.path.isfile(os.path.join(TIKTOKEN_CACHE_DIR, TIKTOKEN_CACHE_HASH))
+
+def truncate_text(text: str, max_tokens: int) -> str:
+    """Truncate text to fit within max_tokens limit.
+
+    Notice: tiktoken default version needs internet access. Here I have to modify the code to use the local blob file.
+    Please always use gpt-3.5-turbo for offline mode. It uses cl100k-base.
+    See:
+    - (method) https://stackoverflow.com/questions/76106366/how-to-use-tiktoken-in-offline-mode-computer.
+    - (file and hash for cl100k-base) https://github.com/openai/tiktoken/blob/main/tiktoken_ext/openai_public.py
+    """
+    encoding_name = "gpt-3.5-turbo"
     max_tokens = max_tokens - 1
     text = str(text)
     try:

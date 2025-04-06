@@ -1,5 +1,5 @@
 from .timeout import timeout
-from .eval_util import chemical_symbols
+from .structure_util import chemical_symbols
 import smact
 from smact.screening import pauling_test
 import numpy as np

@@ -58,13 +58,13 @@ class StructureGenerator:
     def _prepare_instructions(self, input_structure_strs: List) -> List:
         instructions = []
         for input_str in input_structure_strs:
-            if self.task == "csp":
+            if self.task == "csg":  # CSG
                 question = self.prompt_pattern.format(
                     input=truncate_text(input_str, max_tokens=11800),
                     rep_size=self.args.reproduction_size,
                     fmt=self.fmt
                 )
-            else:
+            else:  # CSGS.
                 question = self.prompt_pattern.format(
                     input=truncate_text(input_str, max_tokens=11800),
                     rep_size=self.args.reproduction_size,

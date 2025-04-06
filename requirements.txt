@@ -2,7 +2,7 @@
 --extra-index-url https://download.pytorch.org/whl/cu121
 torch==2.4.0+cu121
 vllm==0.6.2
-pymatgen==2023.3.10
+pymatgen==2023.10.11
 transformers==4.45.1
 numpy==1.26.4
 chgnet==0.3.8

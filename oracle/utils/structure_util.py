@@ -3,7 +3,7 @@ import numpy as np
 from pymatgen.core import Structure, Lattice, Composition
 from collections import Counter
 
-from validity_util import structure_validity, smact_validity
+from .validity_util import structure_validity, smact_validity
 
 from .featurize_util import timeout_featurize, CompFP
 

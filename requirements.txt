@@ -1,4 +1,4 @@
---index-url https://pypi.org
+--index-url https://pypi.tuna.tsinghua.edu.cn/simple
 --extra-index-url https://download.pytorch.org/whl/cu121
 torch==2.4.0+cu121
 vllm==0.6.2

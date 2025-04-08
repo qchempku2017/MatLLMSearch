@@ -24,13 +24,16 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     
     # Task and Model arguments
-    parser.add_argument('--model_path', default='./model')
-    parser.add_argument('--model_label', default='llama3_instruct')
+    parser.add_argument('--model_path', default='./llama3')
+    parser.add_argument('--backend', default='vllm')
     parser.add_argument('--fmt', choices=['poscar', 'cif'], default='poscar')
     parser.add_argument('--tensor_parallel_size', type=int, default=4)
     parser.add_argument('--gpu_memory_utilization', type=float, default=0.8)
-    parser.add_argument('--max_tokens', type=int, default=4000)
+    parser.add_argument('--max_tokens', type=int, default=4096)
     parser.add_argument('--temperature', type=float, default=0.95)
+    parser.add_argument('--api_base', type=str, default='http://localhost:11434/v1')
+    parser.add_argument('--model_name', default='llama3_instruct')
+    parser.add_argument('--chat_template_style', default='llama3')
     
     parser.add_argument('--random_seed', type=int, default=42)
     parser.add_argument('--topk', type=int, default=100)
@@ -66,11 +69,15 @@ def initialize_models(args: argparse.Namespace) -> Tuple:
     
     # Initialize LLM
     llm_manager = LLMManager(
-        args.model_path,
-        args.tensor_parallel_size,
-        args.gpu_memory_utilization,
-        args.temperature,
-        args.max_tokens
+        model_path=args.model_path,
+        backend=args.backend,
+        tensor_parallel_size=args.tensor_parallel_size,
+        gpu_memory_utilization=args.gpu_memory_utilization,
+        temperature=args.temperature,
+        max_tokens=args.max_tokens,
+        api_base=args.api_base,
+        model_name=args.model_name,
+        chat_template_style=args.chat_template_style,
     )
     # Initialize Oracles
     generator = StructureGenerator(llm_manager, base_path, args)

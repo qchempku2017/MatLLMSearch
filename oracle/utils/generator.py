@@ -74,7 +74,7 @@ class StructureGenerator:
             message = [
                 { "role": "user", "content": question },
              ]
-            instruction = self.llm_manager.tokenizer.apply_chat_template(message, tokenize=False)
+            instruction = self.llm_manager.format_chat(message)
             instructions.append(instruction)
         return [truncate_text(instruction, max_tokens=12000) for instruction in instructions]
 

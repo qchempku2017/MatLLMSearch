@@ -13,3 +13,4 @@ smact==2.5.5
 tiktoken==0.9.0
 blobfile==2.1.1
 openai==1.40.0
+monty==2024.5.24
